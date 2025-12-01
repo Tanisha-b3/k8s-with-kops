@@ -1,9 +1,11 @@
 variable "env" {
   type = string
+  default = "dev"
 }
 
 variable "org_prefix" {
   type = string
+  default = "kops"
 }
 
 variable "repositories" {
@@ -14,10 +16,6 @@ variable "repositories" {
 
 variable "region" {
   default = "us-east-1"
-}
-
-variable "prefix" {
-  default = "kops-idp"
 }
 
 variable "cluster_name" {
