@@ -7,3 +7,6 @@ output "iam" {
   sensitive = true
 }
 
+output "vpc" {
+  value = module.vpc.vpc_info
+}
