@@ -21,3 +21,18 @@ variable "region" {
 variable "cluster_name" {
   default = "kops-cluster"
 }
+
+variable "db_name" {
+  type = string
+  description = "database name"
+}
+
+variable "db_user" {
+    type = string
+    description = "database username" 
+}
+
+variable "db_pass" {
+  type = string
+  description = "database password"
+}
