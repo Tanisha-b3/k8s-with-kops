@@ -1,0 +1,8 @@
+env    = "staging"
+prefix = "kops"
+region = "ap-southeast-1"
+
+cluster_name     = "kopsdemo.k8s.local"
+kops_node_count  = "2"
+kops_node_size   = "t2.small"
+kops_master_size = "t2.medium"
