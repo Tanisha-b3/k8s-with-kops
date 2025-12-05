@@ -3,7 +3,7 @@
 set -e
 
 # Setup logging
-LOG_DIR="/var/log/kops"
+LOG_DIR="$HOME/kops"
 LOG_FILE="$LOG_DIR/update-iam-profile-$(date +%Y%m%d-%H%M%S).log"
 mkdir -p "$LOG_DIR"
 
