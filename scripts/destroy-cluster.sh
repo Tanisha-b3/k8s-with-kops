@@ -34,9 +34,15 @@ if [ -d "../kops-infra" ]; then
     cd - > /dev/null
 fi
 
-# Clean S3 state store
+# Clean S3 state store completely
 echo "Cleaning S3 state store..."
-aws s3 rm "s3://$KOPS_STATE_STORE" --recursive 2>/dev/null || echo "WARNING: S3 cleanup failed"
+aws s3 rm "s3://$KOPS_STATE_STORE" --recursive 2>/dev/null || true
+aws s3api list-object-versions --bucket "$KOPS_STATE_STORE" --query 'Versions[].{Key:Key,VersionId:VersionId}' --output text 2>/dev/null | while read key version; do
+    [ -n "$key" ] && aws s3api delete-object --bucket "$KOPS_STATE_STORE" --key "$key" --version-id "$version" 2>/dev/null || true
+done
+aws s3api list-object-versions --bucket "$KOPS_STATE_STORE" --query 'DeleteMarkers[].{Key:Key,VersionId:VersionId}' --output text 2>/dev/null | while read key version; do
+    [ -n "$key" ] && aws s3api delete-object --bucket "$KOPS_STATE_STORE" --key "$key" --version-id "$version" 2>/dev/null || true
+done
 
 # Destroy kops-init infrastructure
 if [ -d "../kops-init" ]; then
