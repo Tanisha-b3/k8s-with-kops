@@ -22,7 +22,7 @@ module "iam" {
 # ------------------------------
 module "kops_state_store" {
   source      = "../tf-modules/s3"
-  bucket_name = "${var.prefix}-kops-state-${var.env}-${var.region}"
+  bucket_name = "${var.prefix}-state-${var.env}-${var.region}"
 
   tags = {
     Environment = var.env
@@ -37,8 +37,8 @@ module "kops_state_store" {
 # ------------------------------
 resource "local_file" "kops_backend" {
   depends_on = [module.kops_state_store]
-  filename   = "../kops-infra/backend.tf"
-  content = templatefile("${path.module}/templates/backend.tf.tpl", {
+  filename   = "../kops-infra/backend.hcl"
+  content = templatefile("${path.module}/templates/backend.hcl.tpl", {
     bucket_name = module.kops_state_store.bucket_name
     region      = var.region
   })

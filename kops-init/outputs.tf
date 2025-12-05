@@ -1,9 +1,7 @@
-output "kops_cluster_info" {
+output "kops_init" {
+  description = "Kops initialization infrastructure outputs"
   value = {
-    name        = var.cluster_name
-    s3_bucket   = "s3://${module.kops_state_store.bucket_name}"
-    kops_zones  = local.kops_zones
-    iam_profile = module.iam.kops_admin_credentials.user_name
+    cluster_name = var.cluster_name
+    state_bucket = module.kops_state_store.bucket_name
   }
-  sensitive = true
 }
