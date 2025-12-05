@@ -8,8 +8,8 @@ It is designed to facilitate internal development and deployment of applications
 - [What is IDP?](#what-is-idp)
 - [Project Details](#project-details)
 - [Structure](#structure)
-- [Getting Started](#getting-started)
-- [Usage](#usage)
+- [Pre-requisites](#prerequisites)
+- [Documentation](#documentation)
 - [Contributing](#contributing)
 - [License](#license)
 
