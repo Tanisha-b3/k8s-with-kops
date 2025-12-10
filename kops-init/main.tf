@@ -12,25 +12,25 @@ locals {
 # ------------------------------
 # IAM
 # ------------------------------
-module "iam" {
-  source = "../tf-modules/iam"
-  prefix = "${var.prefix}-${var.env}"
-}
+# module "iam" {
+#   source = "../tf-modules/iam"
+#   prefix = "${var.prefix}-${var.env}"
+# }
 
 # ------------------------------
 # S3 Bucket - kOps State Store
 # ------------------------------
-module "kops_state_store" {
-  source      = "../tf-modules/s3"
-  bucket_name = "${var.prefix}-state-${var.env}-${var.region}"
+# module "kops_state_store" {
+#   source      = "../tf-modules/s3"
+#   bucket_name = "${var.prefix}-state-${var.env}-${var.region}"
 
-  tags = {
-    Environment = var.env
-    Project     = var.prefix
-    ManagedBy   = "terraform"
-    Owner       = "platform-team"
-  }
-}
+#   tags = {
+#     Environment = var.env
+#     Project     = var.prefix
+#     ManagedBy   = "terraform"
+#     Owner       = "platform-team"
+#   }
+# }
 
 # ------------------------------
 # Setup kops backend configuration
@@ -70,30 +70,3 @@ resource "null_resource" "update_iam_profile" {
   }
 }
 
-# ------------------------------
-# Create Cluster
-# ------------------------------
-resource "null_resource" "create_cluster" {
-  depends_on = [module.kops_state_store, null_resource.update_iam_profile]
-
-  triggers = {
-    always_run = timestamp()
-  }
-
-  provisioner "local-exec" {
-    command = "bash ../scripts/create-cluster.sh"
-    environment = {
-      CLUSTER_NAME     = var.cluster_name
-      KOPS_STATE_STORE = "s3://${module.kops_state_store.bucket_name}"
-      KOPS_ZONES       = local.kops_zones
-      NODE_COUNT       = var.kops_node_count
-      NODE_SIZE        = var.kops_node_size
-      MASTER_SIZE      = var.kops_master_size
-    }
-  }
-
-  provisioner "local-exec" {
-    when    = destroy
-    command = "echo 'Cleanup: Cluster destruction handled by kops'"
-  }
-}
