@@ -86,7 +86,7 @@ jobs:
 
       - name: Terraform Init with Backend (CD)
         working-directory: ./kops-init
-        run: |
+        run: 
           terraform init
 
       - name: Terraform Validate (CD)
