@@ -12,25 +12,25 @@ locals {
 # ------------------------------
 # IAM
 # ------------------------------
-# module "iam" {
-#   source = "../tf-modules/iam"
-#   prefix = "${var.prefix}-${var.env}"
-# }
+module "iam" {
+  source = "../tf-modules/iam"
+  prefix = "${var.prefix}-${var.env}"
+}
 
 # ------------------------------
 # S3 Bucket - kOps State Store
 # ------------------------------
-# module "kops_state_store" {
-#   source      = "../tf-modules/s3"
-#   bucket_name = "${var.prefix}-state-${var.env}-${var.region}"
+module "kops_state_store" {
+  source      = "../tf-modules/s3"
+  bucket_name = "${var.prefix}-state-${var.env}-${var.region}"
 
-#   tags = {
-#     Environment = var.env
-#     Project     = var.prefix
-#     ManagedBy   = "terraform"
-#     Owner       = "platform-team"
-#   }
-# }
+  tags = {
+    Environment = var.env
+    Project     = var.prefix
+    ManagedBy   = "terraform"
+    Owner       = "platform-team"
+  }
+}
 
 # ------------------------------
 # Setup kops backend configuration
