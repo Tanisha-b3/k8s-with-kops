@@ -26,7 +26,6 @@ jobs:
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false   # 🔥 IMPORTANT FIX
 
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -51,61 +50,89 @@ jobs:
         working-directory: ./kops-init
         run: terraform plan
 
-
-  # -----------------------------
-  # CD: Apply Infra + Create/Update Cluster
-  # -----------------------------
-  deploy:
-    name: Deploy Infra + Kops Cluster
-    needs: terraform-ci
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false   # 🔥 IMPORTANT FIX
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      # --- Terraform Apply ---
-      - name: Terraform Init
-        working-directory: ./kops-init
-        run: terraform init
-
-      - name: Terraform Apply
-        working-directory: ./kops-init
-        run: terraform apply -auto-approve
-
-      # --- Install kops & kubectl ---
-      - name: Install Kops
-        run: |
-          curl -Lo kops https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
-          chmod +x kops
-          sudo mv kops /usr/local/bin/
-
-      - name: Install kubectl
-        run: |
-          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
-          chmod +x kubectl
-          sudo mv kubectl /usr/local/bin/
-
-      # --- Run your Kops scripts ---
-      - name: Run Create Cluster Script
-        working-directory: ./scripts
-        run: bash create-cluster.sh
-
-      - name: Update IAM profile if needed
-        working-directory: ./scripts
-        run: |
-          bash update-iam-profile.sh || echo "IAM already updated"
+deploy:
+  name: Deploy Infra + Kops Cluster
+  needs: terraform-ci
+  runs-on: ubuntu-latest
+  if: github.ref == 'refs/heads/main'
+  
+  # Define environment variables
+  env:
+    TF_VERSION: "1.5.0"  # Specify your Terraform version
+    AWS_REGION: "us-east-1"  # Specify your AWS region
+    TF_BACKEND_BUCKET: "your-terraform-state-bucket"  # Add your S3 bucket for state
+    
+  steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+      
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v2
+      with:
+        terraform_version: ${{ env.TF_VERSION }}
+        terraform_wrapper: false
+        
+    - name: Configure AWS Credentials
+      # Option 1: Using IAM User credentials (current approach)
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: ${{ env.AWS_REGION }}
+      
+      # Option 2: Recommended - Using OIDC (more secure)
+      # uses: aws-actions/configure-aws-credentials@v2
+      # with:
+      #   role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/GitHubActionsRole
+      #   aws-region: ${{ env.AWS_REGION }}
+        
+    - name: Terraform Init with Backend
+      working-directory: ./kops-init
+      run: |
+        # Initialize with S3 backend (recommended for team collaboration)
+        terraform init \
+          -backend-config="bucket=${{ env.TF_BACKEND_BUCKET }}" \
+          -backend-config="key=kops-cluster/terraform.tfstate" \
+          -backend-config="region=${{ env.AWS_REGION }}"
+          
+    - name: Terraform Validate
+      working-directory: ./kops-init
+      run: terraform validate
+      
+    - name: Terraform Plan
+      working-directory: ./kops-init
+      run: terraform plan -out=tfplan
+      continue-on-error: false
+      
+    - name: Terraform Apply
+      working-directory: ./kops-init
+      run: terraform apply -auto-approve tfplan
+      
+    - name: Extract Kops Cluster Output
+      working-directory: ./kops-init
+      run: |
+        # Export Kops cluster name for subsequent steps
+        echo "KOPS_CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_ENV
+        echo "KOPS_STATE_STORE=$(terraform output -raw state_store)" >> $GITHUB_ENV
+        
+    - name: Deploy Kops Cluster
+      if: success()
+      run: |
+        # Install kops if needed
+        curl -Lo kops https://github.com/kubernetes/kops/releases/download/$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)/kops-linux-amd64
+        chmod +x ./kops
+        sudo mv ./kops /usr/local/bin/
+        
+        # Update kops cluster using terraform outputs
+        kops update cluster ${{ env.KOPS_CLUSTER_NAME }} \
+          --state=${{ env.KOPS_STATE_STORE }} \
+          --yes \
+          --admin
+        
+    - name: Cleanup on Failure
+      if: failure()
+      working-directory: ./kops-init
+      run: |
+        # Optionally destroy resources on failure
+        # terraform destroy -auto-approve
+        echo "Deployment failed. Manual cleanup may be required."
