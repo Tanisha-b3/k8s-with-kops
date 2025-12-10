@@ -30,7 +30,7 @@ jobs:
 
       - name: Terraform Init
         working-directory: ./kops-infra
-        run: terraform init -backend=false
+        run: terraform init
 
       - name: Terraform Validate
         working-directory: ./kops-infra
