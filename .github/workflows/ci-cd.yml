@@ -38,6 +38,10 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Terraform FMT (CI)
+        working-directory: ./kops-init
+        run: terraform fmt -check -recursive
+
       - name: Terraform Init (CI, no backend)
         working-directory: ./kops-init
         run: terraform init -backend=false
@@ -83,10 +87,7 @@ jobs:
       - name: Terraform Init with Backend (CD)
         working-directory: ./kops-init
         run: |
-          terraform init \
-            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
-            -backend-config="key=kops-cluster/terraform.tfstate" \
-            -backend-config="region=${{ env.AWS_REGION }}"
+          terraform init
 
       - name: Terraform Validate (CD)
         working-directory: ./kops-init
