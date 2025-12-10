@@ -80,20 +80,7 @@ jobs:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform Init with Backend (CD)
-        working-directory: ./kops-init
-        run: 
-          terraform init
-
-      - name: Terraform Validate (CD)
-        working-directory: ./kops-init
-        run: terraform validate
-
-      - name: Terraform Plan (CD)
-        working-directory: ./kops-init
-        run: terraform plan -out=tfplan
-
+          
       - name: Terraform Apply (CD)
         working-directory: ./kops-init
         run: |
