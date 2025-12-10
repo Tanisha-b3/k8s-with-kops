@@ -29,15 +29,15 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
-        working-directory: ./kops-infra
+        working-directory: ./kops-init
         run: terraform init
 
       - name: Terraform Validate
-        working-directory: ./kops-infra
+        working-directory: ./kops-init
         run: terraform validate
 
       - name: Terraform Plan
-        working-directory: ./kops-infra
+        working-directory: ./kops-init
         run: terraform plan
 
 
@@ -61,7 +61,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Apply
-        working-directory: ./kops-infra
+        working-directory: ./kops-init
         run: terraform apply -auto-approve
 
       - name: Install Kops
