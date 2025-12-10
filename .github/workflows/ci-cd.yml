@@ -11,110 +11,113 @@ env:
 
 jobs:
 
-  # -----------------------------
-  # CI: Terraform validation
-  # -----------------------------
-  terraform-ci:
-    name: Terraform Validation
+  deploy:
+    name: Terraform + Kops Deployment
     runs-on: ubuntu-latest
 
     steps:
+      # -----------------------------
+      # 1. Checkout Repository
+      # -----------------------------
       - name: Checkout Repo
         uses: actions/checkout@v3
 
-      - name: Setup Terraform (CI)
+      # -----------------------------
+      # 2. Setup Terraform (wrapper disabled)
+      # -----------------------------
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
           terraform_wrapper: false
 
-      - name: Disable Terraform Wrapper Cache (CI)
+      - name: Disable Terraform Wrapper Cache
         run: rm -f ~/.terraformrc || true
 
-      - name: Configure AWS Credentials (CI)
+      # -----------------------------
+      # 3. Configure AWS Credentials
+      # -----------------------------
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-
-      - name: Terraform Init (CI, no backend)
+      # -----------------------------
+      # 4. Terraform Init
+      # -----------------------------
+      - name: Terraform Init
         working-directory: ./kops-init
-        run: terraform init -backend=false
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_BACKEND_BUCKET }}" \
+            -backend-config="key=kops-cluster/terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
 
-      - name: Terraform Validate (CI)
+      # -----------------------------
+      # 5. Terraform Validate
+      # -----------------------------
+      - name: Terraform Validate
         working-directory: ./kops-init
         run: terraform validate
 
-      - name: Terraform Plan (CI)
+      # -----------------------------
+      # 6. Terraform Plan
+      # -----------------------------
+      - name: Terraform Plan
         working-directory: ./kops-init
-        run: terraform plan
+        run: terraform plan -out=tfplan
 
-
-  # -----------------------------
-  # CD: Apply Infra + Create/Update Cluster
-  # -----------------------------
-  deploy:
-    name: Deploy Infra + Kops Cluster
-    needs: terraform-ci
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
-
-    steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
-
-      - name: Setup Terraform (CD)
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-          terraform_wrapper: false
-
-      - name: Disable Terraform Wrapper Cache (CD)
-        run: rm -f ~/.terraformrc || true
-
-      - name: Configure AWS Credentials (CD)
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
-
-      - name: Terraform Apply (CD)
+      # -----------------------------
+      # 7. Terraform Apply
+      # -----------------------------
+      - name: Terraform Apply
         working-directory: ./kops-init
         run: |
           which terraform
           terraform version
-          terraform apply -auto-approve 
+          terraform apply -auto-approve tfplan
 
+      # -----------------------------
+      # 8. Extract Terraform Outputs
+      # -----------------------------
       - name: Extract Kops Cluster Output
         working-directory: ./kops-init
         run: |
           echo "KOPS_CLUSTER_NAME=$(terraform output -raw cluster_name)" >> $GITHUB_ENV
           echo "KOPS_STATE_STORE=$(terraform output -raw state_store)" >> $GITHUB_ENV
 
+      # -----------------------------
+      # 9. Install kops & kubectl
+      # -----------------------------
       - name: Install kops & kubectl
         run: |
-          # install kops (latest)
+          # install kops
           KOPS_VER=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)
           curl -Lo kops "https://github.com/kubernetes/kops/releases/download/${KOPS_VER}/kops-linux-amd64"
           chmod +x ./kops
           sudo mv ./kops /usr/local/bin/
 
-          # install kubectl matching K8s version (use latest stable)
+          # install kubectl
           KUBECTL_VER=$(curl -s https://storage.googleapis.com/kubernetes-release/release/stable.txt)
           curl -LO "https://dl.k8s.io/release/${KUBECTL_VER}/bin/linux/amd64/kubectl"
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
+      # -----------------------------
+      # 10. Deploy / Update Kops Cluster
+      # -----------------------------
       - name: Deploy / Update Kops Cluster
         run: |
           kops update cluster "${KOPS_CLUSTER_NAME}" \
             --state="${KOPS_STATE_STORE}" \
             --yes
 
+      # -----------------------------
+      # 11. Update IAM Profile (optional)
+      # -----------------------------
       - name: Update IAM profile if needed
         working-directory: ./scripts
         run: |
-          bash update-iam-profile.sh || echo "IAM update script failed or already applied"
+          bash update-iam-profile.sh || echo "IAM update skipped"
