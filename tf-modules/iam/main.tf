@@ -121,7 +121,7 @@ data "aws_iam_policy_document" "kops_admin_policy" {
 }
 
 resource "aws_iam_user" "kops_admin" {
-  name = "${var.prefix}-admin"
+  name = "${var.prefix}-admink"
   path = "/"
 
   tags = {
