@@ -1,0 +1,17 @@
+name: Tag Release Pipeline
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+jobs:
+  run-on-tag:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Print tag name
+        run: echo "Tag triggered: $GITHUB_REF_NAME"
