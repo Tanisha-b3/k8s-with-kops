@@ -1,0 +1,86 @@
+name: CI-CD Pipeline for Kops + Terraform
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+
+env:
+  AWS_REGION: ap-south-1
+  TF_VERSION: 1.7.0
+
+jobs:
+
+  terraform-ci:
+    name: Terraform Validation
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Init
+        working-directory: ./kops-infra
+        run: terraform init -backend=false
+
+      - name: Terraform Validate
+        working-directory: ./kops-infra
+        run: terraform validate
+
+      - name: Terraform Plan
+        working-directory: ./kops-infra
+        run: terraform plan
+
+
+  deploy:
+    name: Deploy Infra + Run Kops Scripts
+    needs: terraform-ci
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Terraform Apply
+        working-directory: ./kops-infra
+        run: terraform apply -auto-approve
+
+      - name: Install Kops
+        run: |
+          curl -Lo kops https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
+          chmod +x kops
+          sudo mv kops /usr/local/bin/
+
+      - name: Install kubectl
+        run: |
+          curl -LO "https://dl.k8s.io/release/v1.28.0/bin/linux/amd64/kubectl"
+          chmod +x kubectl
+          sudo mv kubectl /usr/local/bin/
+
+      - name: Run Create Cluster Script
+        working-directory: ./scripts
+        run: bash create-cluster.sh
+
+      - name: Run IAM Fix Script if needed
+        working-directory: ./scripts
+        run: |
+          bash update-iam-profile.sh || echo "IAM already updated"
