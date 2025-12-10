@@ -1,3 +1,4 @@
+# Infrastructure labels
 terraform:
   - changed-files:
     - any-glob-to-any-file:
@@ -5,13 +6,11 @@ terraform:
       - 'kops-infra/*.tf'
       - 'tf-modules/*/*.tf'
       - 'tf-modules/*/*.tfvars'
+      - '*.tf'
+      - '*.tfvars'
+      - '*.hcl'
 
-kubernetes:
-  - changed-files:
-    - any-glob-to-any-file:
-      - 'scripts/create-cluster.sh'
-      - 'scripts/destroy-cluster.sh'
-
+# Documentation labels
 documentation:
   - changed-files:
     - any-glob-to-any-file:
@@ -20,9 +19,76 @@ documentation:
       - 'scripts/README.md'
       - 'tf-modules/envs/README.md'
       - 'kops-init/README.md'
+      - '**/*.md'
 
+# CI/CD labels
 ci/cd:
   - changed-files:
     - any-glob-to-any-file:
       - '.github/**'
       - '.gitignore'
+      - '.gitattributes'
+
+# Environment labels
+dev:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tf-modules/envs/dev.tfvars'
+
+staging:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tf-modules/envs/stage.tfvars'
+
+production:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tf-modules/envs/prod.tfvars'
+
+# Size labels
+size/small:
+  - changed-files:
+    - count-type: 'added'
+      count: '<=5'
+    - count-type: 'modified'
+      count: '<=10'
+
+size/medium:
+  - changed-files:
+    - count-type: 'added'
+      count: '6-20'
+    - count-type: 'modified'
+      count: '11-50'
+
+size/large:
+  - changed-files:
+    - count-type: 'added'
+      count: '>20'
+    - count-type: 'modified'
+      count: '>50'
+
+# Configuration labels
+configuration:
+  - changed-files:
+    - any-glob-to-any-file:
+      - '*.json'
+      - '*.ini'
+      - '*.conf'
+      - '*.config'
+
+# Scripts labels
+scripts:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'scripts/**'
+      - '*.sh'
+      - '*.bash'
+
+# Security labels
+security:
+  - changed-files:
+    - any-glob-to-any-file:
+      - 'tf-modules/iam/**'
+      - '**/security.tf'
+      - '**/iam.tf'
+      - '**/policy.json'
