@@ -11,26 +11,36 @@ env:
 
 jobs:
 
+  # -----------------------------
+  # CI: Terraform validation
+  # -----------------------------
   terraform-ci:
     name: Terraform Validation
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v3
 
-      - uses: hashicorp/setup-terraform@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      - name: Terraform FMT
+        working-directory: ./kops-init
+        run: terraform fmt -check -recursive
+
       - name: Terraform Init
         working-directory: ./kops-init
-        run: terraform init
+        run: terraform init -backend=false
 
       - name: Terraform Validate
         working-directory: ./kops-init
@@ -41,29 +51,41 @@ jobs:
         run: terraform plan
 
 
+  # -----------------------------
+  # CD: Apply Infra + Create/Update Cluster
+  # -----------------------------
   deploy:
-    name: Deploy Infra + Run Kops Scripts
+    name: Deploy Infra + Kops Cluster
     needs: terraform-ci
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main'
 
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout Repo
+        uses: actions/checkout@v3
 
-      - uses: hashicorp/setup-terraform@v2
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - uses: aws-actions/configure-aws-credentials@v2
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
+      # --- Terraform Apply ---
+      - name: Terraform Init
+        working-directory: ./kops-init
+        run: terraform init
+
       - name: Terraform Apply
         working-directory: ./kops-init
         run: terraform apply -auto-approve
 
+      # --- Install kops & kubectl ---
       - name: Install Kops
         run: |
           curl -Lo kops https://github.com/kubernetes/kops/releases/download/v1.28.0/kops-linux-amd64
@@ -76,11 +98,12 @@ jobs:
           chmod +x kubectl
           sudo mv kubectl /usr/local/bin/
 
+      # --- Run your Kops scripts ---
       - name: Run Create Cluster Script
         working-directory: ./scripts
         run: bash create-cluster.sh
 
-      - name: Run IAM Fix Script if needed
+      - name: Update IAM profile if needed
         working-directory: ./scripts
         run: |
           bash update-iam-profile.sh || echo "IAM already updated"
