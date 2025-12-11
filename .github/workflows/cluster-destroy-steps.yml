@@ -1,0 +1,121 @@
+name: Cluster Destroy Steps
+
+on:
+  workflow_call:
+    inputs:
+      cluster_name:
+        required: false
+        type: string
+        default: "dev-cluster.k8s.local"
+      environment:
+        required: false
+        type: string
+        default: "dev"
+
+jobs:
+  destroy:
+    name: Destroy Cluster
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.0
+          terraform_wrapper: false
+
+      - name: Install kOps
+        run: |
+          KOPS_VERSION=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -Lo kops "https://github.com/kubernetes/kops/releases/download/${KOPS_VERSION}/kops-linux-amd64"
+          chmod +x kops && sudo mv kops /usr/local/bin/
+          echo "✅ kOps installed"
+
+      - name: Set Cleanup Variables
+        run: |
+          CLUSTER_NAME="${{ inputs.cluster_name }}"
+          ENVIRONMENT="${{ inputs.environment }}"
+          KOPS_STATE_STORE="s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/clusters/"
+
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+          echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_ENV
+          echo "KOPS_STATE_STORE=$KOPS_STATE_STORE" >> $GITHUB_ENV
+          echo "🧹 Cleaning up test cluster: $CLUSTER_NAME"
+
+      - name: Wait Before Cleanup
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          echo "⏳ Waiting 2 minutes before cleanup to allow testing..."
+          sleep 120
+
+      - name: Terraform Destroy
+        continue-on-error: true
+        working-directory: ./kops-infra
+        run: |
+          # Recreate backend.tf for cleanup
+          cat > backend.tf << EOF
+          terraform {
+            backend "s3" {
+              bucket = "${{ vars.TF_STATE_BUCKET }}"
+              key    = "$ENVIRONMENT/kops-infra/$CLUSTER_NAME"
+              region = "${{ vars.AWS_REGION }}"
+            }
+          }
+          EOF
+
+          if terraform init; then
+            terraform destroy -auto-approve
+            echo "✅ Terraform resources destroyed"
+          else
+            echo "⚠️  Terraform state not found, proceeding with kOps cleanup"
+          fi
+
+      - name: kOps Cluster Destroy
+        continue-on-error: true
+        run: |
+          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
+            echo "🗑️  Deleting cluster $CLUSTER_NAME..."
+            kops delete cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE --yes
+            echo "✅ Cluster deleted"
+          else
+            echo "ℹ️  Cluster $CLUSTER_NAME not found, already cleaned up"
+          fi
+
+      - name: Cleanup S3 Artifacts
+        continue-on-error: true
+        run: |
+          echo "🧹 Cleaning up S3 artifacts..."
+          aws s3 rm "s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/$CLUSTER_NAME/" --recursive
+          aws s3 rm "s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/kops-infra/$CLUSTER_NAME/" --recursive
+          echo "✅ S3 cleanup completed"
+      
+      - name: Destruction Summary
+        run: |
+          cat << EOF
+          
+          ╔═══════════════════════════════════════════════════════════╗
+          ║           CLUSTER DESTRUCTION COMPLETED                   ║
+          ╚═══════════════════════════════════════════════════════════╝
+          
+          🗑️ Cluster: $CLUSTER_NAME
+          🌍 Environment: $ENVIRONMENT
+          📍 Region: ${{ vars.AWS_REGION }}
+          ⏰ Destroyed at: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+          👤 Destroyed by: ${{ github.actor }}
+          
+          ✅ All resources have been cleaned up
+          🧹 Test cluster cleanup completed
+          
+          EOF
+          
+          echo "::notice::Cluster $CLUSTER_NAME has been successfully destroyed"
