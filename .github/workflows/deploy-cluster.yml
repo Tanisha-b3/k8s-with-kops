@@ -90,8 +90,6 @@ jobs:
       - name: Create Cluster
         if: ${{ env.CLUSTER_EXISTS == 'false' }}
         run: |
-          kops create sshpublickey ${{ inputs.cluster_name }} -i ~/.ssh/id_rsa.pub --state=$KOPS_STATE_STORE
-          
           kops create cluster \
             --name=${{ inputs.cluster_name }} \
             --state=$KOPS_STATE_STORE \
@@ -103,6 +101,9 @@ jobs:
             --networking=calico \
             --dns-zone=${{ inputs.cluster_name }} \
             --ssh-public-key="~/.ssh/id_rsa.pub"
+          
+          # Add SSH key after cluster is created
+          kops create sshpublickey ${{ inputs.cluster_name }} -i ~/.ssh/id_rsa.pub --state=$KOPS_STATE_STORE
           echo "✅ Cluster configuration created"
 
       - name: Generate Terraform Files
