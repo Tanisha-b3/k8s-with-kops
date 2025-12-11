@@ -83,7 +83,7 @@ jobs:
   cleanup:
     name: Cleanup Test Cluster
     needs: [setup, deploy]
-    if: ${{ github.event_name == 'push' && needs.deploy.result == 'success' }}
+    if: ${{ github.event_name != 'workflow_dispatch' && needs.deploy.result == 'success' }}
     uses: ./.github/workflows/cluster-destroy-steps.yml
     with:
       cluster_name: ${{ needs.setup.outputs.validated_cluster_name }}
