@@ -197,7 +197,7 @@ jobs:
           
           echo "✅ Tools installed successfully"
       - name: SSH Key Setup
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
           set -e
           mkdir -p ~/.ssh || { echo "Failed to create .ssh directory"; exit 1; }
@@ -206,15 +206,27 @@ jobs:
           eval "$(ssh-agent -s)" || { echo "Failed to start SSH agent"; exit 1; }
           ssh-add ~/.ssh/id_rsa || { echo "Failed to add SSH key"; exit 1; }
           echo "✅ SSH key setup completed"
-      - name: kOps Cluster Initialization
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Check Cluster Existence
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
-          set -e
           export KOPS_STATE_STORE=s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/clusters/
           export CLUSTER_NAME=$VALIDATED_CLUSTER_NAME
-          export ZONES=$AVAILABLE_ZONES
           echo "KOPS_STATE_STORE=$KOPS_STATE_STORE" >> $GITHUB_ENV
           echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+          
+          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
+            echo "⚠️  Cluster $CLUSTER_NAME already exists"
+            echo "CLUSTER_EXISTS=true" >> $GITHUB_ENV
+          else
+            echo "✅ Cluster $CLUSTER_NAME does not exist, proceeding with creation"
+            echo "CLUSTER_EXISTS=false" >> $GITHUB_ENV
+          fi
+          
+      - name: kOps Cluster Initialization
+        if: ${{ github.event_name != 'pull_request' && env.CLUSTER_EXISTS == 'false' }}
+        run: |
+          set -e
+          export ZONES=$AVAILABLE_ZONES
 
           kops create sshpublickey $CLUSTER_NAME -i ~/.ssh/id_rsa.pub --state=$KOPS_STATE_STORE || { echo "Failed to create SSH public key"; exit 1; }
 
@@ -233,9 +245,13 @@ jobs:
           echo "✅ Cluster configuration created"
 
       - name: kOps Cluster Update
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'pull_request' }}
         run: |
           set -e
+          if [ "$CLUSTER_EXISTS" = "true" ]; then
+            echo "⚠️  Using existing cluster configuration"
+          fi
+          
           kops update cluster \
             --name=$CLUSTER_NAME \
             --state=$KOPS_STATE_STORE \
@@ -246,7 +262,7 @@ jobs:
           
           echo "✅ Terraform files generated"
       - name: Create backend.tf file
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name != 'pull_request' }}
         working-directory: ./kops-infra
         run: |
           cat > backend.tf << EOF
@@ -260,6 +276,7 @@ jobs:
           EOF
           
       - name: Terraform Init
+        if: ${{ github.event_name != 'pull_request' }}
         working-directory: ./kops-infra
         run: |
           set -e
@@ -267,13 +284,14 @@ jobs:
           echo "✅ Terraform initialized"
         
       - name: Terraform Plan
+        if: ${{ github.event_name != 'pull_request' }}
         working-directory: ./kops-infra
         run: |
           set -e
           terraform plan -out=tfplan || { echo "Terraform plan failed"; exit 1; }
           echo "✅ Terraform plan completed"
       - name: Terraform Apply
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'push' }}
         working-directory: ./kops-infra
         run: |
           set -e
@@ -281,7 +299,7 @@ jobs:
           echo "✅ Infrastructure deployed"
           
       - name: Dry Run Summary
-        if: ${{ github.event_name != 'workflow_dispatch' }}
+        if: ${{ github.event_name == 'pull_request' }}
         run: |
           echo "🧪 DRY RUN COMPLETED"
           echo "Event: ${{ github.event_name }}"
@@ -321,4 +339,99 @@ jobs:
           echo "✅ Cluster deployed successfully!"
           echo "📋 Cluster: $VALIDATED_CLUSTER_NAME"
           echo "🔗 Access: aws s3 cp s3://$BUCKET/$ENVIRONMENT/$VALIDATED_CLUSTER_NAME/kubeconfig ~/.kube/config"
+
+  cleanup:
+    name: Cleanup Test Cluster
+    runs-on: ubuntu-latest
+    needs: kops-infra
+    if: ${{ github.event_name != 'workflow_dispatch' && needs.kops-infra.result == 'success' }}
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.0
+          terraform_wrapper: false
+
+      - name: Install kOps
+        run: |
+          KOPS_VERSION=$(curl -s https://api.github.com/repos/kubernetes/kops/releases/latest | grep tag_name | cut -d '"' -f 4)
+          curl -Lo kops "https://github.com/kubernetes/kops/releases/download/${KOPS_VERSION}/kops-linux-amd64"
+          chmod +x kops && sudo mv kops /usr/local/bin/
+          echo "✅ kOps installed"
+
+      - name: Set Cleanup Variables
+        run: |
+          CLUSTER_NAME="dev-cluster.k8s.local"
+          ENVIRONMENT="dev"
+          KOPS_STATE_STORE="s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/clusters/"
+          
+          echo "CLUSTER_NAME=$CLUSTER_NAME" >> $GITHUB_ENV
+          echo "ENVIRONMENT=$ENVIRONMENT" >> $GITHUB_ENV
+          echo "KOPS_STATE_STORE=$KOPS_STATE_STORE" >> $GITHUB_ENV
+          echo "🧹 Cleaning up test cluster: $CLUSTER_NAME"
+
+      - name: Wait Before Cleanup
+        run: |
+          echo "⏳ Waiting 2 minutes before cleanup to allow testing..."
+          sleep 120
+
+      - name: Terraform Destroy
+        continue-on-error: true
+        working-directory: ./kops-infra
+        run: |
+          # Recreate backend.tf for cleanup
+          cat > backend.tf << EOF
+          terraform {
+            backend "s3" {
+              bucket = "${{ vars.TF_STATE_BUCKET }}"
+              key    = "$ENVIRONMENT/kops-infra/$CLUSTER_NAME"
+              region = "${{ vars.AWS_REGION }}"
+            }
+          }
+          EOF
+          
+          if terraform init; then
+            terraform destroy -auto-approve
+            echo "✅ Terraform resources destroyed"
+          else
+            echo "⚠️  Terraform state not found, proceeding with kOps cleanup"
+          fi
+
+      - name: kOps Cluster Destroy
+        continue-on-error: true
+        run: |
+          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
+            echo "🗑️  Deleting cluster $CLUSTER_NAME..."
+            kops delete cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE --yes
+            echo "✅ Cluster deleted"
+          else
+            echo "ℹ️  Cluster $CLUSTER_NAME not found, already cleaned up"
+          fi
+
+      - name: Cleanup S3 Artifacts
+        continue-on-error: true
+        run: |
+          echo "🧹 Cleaning up S3 artifacts..."
+          aws s3 rm "s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/$CLUSTER_NAME/" --recursive
+          aws s3 rm "s3://${{ vars.TF_STATE_BUCKET }}/$ENVIRONMENT/kops-infra/$CLUSTER_NAME/" --recursive
+          echo "✅ S3 cleanup completed"
+
+      - name: Cleanup Summary
+        run: |
+          echo "🧹 CLEANUP COMPLETED"
+          echo "Event: ${{ github.event_name }}"
+          echo "Cluster: $CLUSTER_NAME"
+          echo "Environment: $ENVIRONMENT"
+          echo "✅ Test resources cleaned up successfully"
   
