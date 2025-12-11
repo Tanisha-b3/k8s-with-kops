@@ -1,0 +1,32 @@
+name: kOps Cluster Destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment'
+        required: true
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      cluster_name:
+        description: 'Cluster name to destroy (without .k8s.local)'
+        required: true
+        type: string
+      confirm_destroy:
+        description: 'Type "DESTROY" to confirm'
+        required: true
+        type: string
+
+jobs:
+  destroy:
+    name: Destroy kOps Cluster
+    if: github.event.inputs.confirm_destroy == 'DESTROY'
+    uses: ./.github/workflows/cluster-destroy-steps.yml
+    with:
+      cluster_name: ${{ github.event.inputs.cluster_name }}
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+    secrets: inherit
+    

@@ -1,0 +1,96 @@
+name: Setup Environment
+
+on:
+  workflow_call:
+    inputs:
+      cluster_name:
+        required: true
+        type: string
+      environment:
+        required: true
+        type: string
+    outputs:
+      validated_cluster_name:
+        description: "Validated cluster name with .k8s.local suffix"
+        value: ${{ jobs.setup.outputs.validated_cluster_name }}
+      available_zones:
+        description: "Available AWS zones"
+        value: ${{ jobs.setup.outputs.available_zones }}
+
+jobs:
+  setup:
+    name: Environment Setup & Validation
+    runs-on: ubuntu-latest
+    outputs:
+      validated_cluster_name: ${{ steps.validate.outputs.cluster_name }}
+      available_zones: ${{ steps.zones.outputs.zones }}
+    
+    steps:
+      - name: Validate and Set Cluster Name
+        id: validate
+        run: |
+          CLUSTER_INPUT="${{ inputs.cluster_name }}"
+          
+          if [[ ! "$CLUSTER_INPUT" =~ ^[a-z0-9-]+$ ]]; then
+            echo "❌ Cluster name must contain only lowercase letters, numbers, and hyphens"
+            exit 1
+          fi
+          
+          if [[ "$CLUSTER_INPUT" == *.k8s.local ]]; then
+            FULL_CLUSTER_NAME="$CLUSTER_INPUT"
+          else
+            FULL_CLUSTER_NAME="${CLUSTER_INPUT}.k8s.local"
+          fi
+          
+          echo "cluster_name=$FULL_CLUSTER_NAME" >> $GITHUB_OUTPUT
+          echo "✅ Cluster name: $FULL_CLUSTER_NAME"
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Validate IAM Permissions
+        run: |
+          echo "🔍 Validating IAM permissions..."
+          PERMISSIONS_VALID=true
+          
+          if ! aws ec2 describe-regions --region ${{ vars.AWS_REGION }} >/dev/null 2>&1; then
+            echo "❌ Missing EC2 permissions"; PERMISSIONS_VALID=false
+          fi
+          
+          if ! aws s3 ls s3://${{ vars.TF_STATE_BUCKET }}/ >/dev/null 2>&1; then
+            echo "❌ Missing S3 permissions"; PERMISSIONS_VALID=false
+          fi
+          
+          if ! aws iam get-user >/dev/null 2>&1; then
+            echo "❌ Missing IAM permissions"; PERMISSIONS_VALID=false
+          fi
+          
+          if ! aws route53 list-hosted-zones >/dev/null 2>&1; then
+            echo "❌ Missing Route53 permissions"; PERMISSIONS_VALID=false
+          fi
+          
+          if [ "$PERMISSIONS_VALID" = "false" ]; then
+            echo "❌ IAM user lacks required permissions"
+            exit 1
+          fi
+          echo "✅ IAM permissions validated"
+
+      - name: Get Available Zones
+        id: zones
+        run: |
+          ZONES=$(aws ec2 describe-availability-zones \
+            --region ${{ vars.AWS_REGION }} \
+            --filters "Name=state,Values=available" \
+            --query "AvailabilityZones[0:3].ZoneName" \
+            --output text | tr '\t' ',')
+          
+          if [[ -z "$ZONES" ]]; then
+            echo "No available zones found"; exit 1
+          fi
+          
+          echo "zones=$ZONES" >> $GITHUB_OUTPUT
+          echo "✅ Available zones: $ZONES"

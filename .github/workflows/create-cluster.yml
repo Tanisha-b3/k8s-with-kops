@@ -1,0 +1,91 @@
+name: kOps Cluster Deployment
+
+on:
+  pull_request:
+    branches: [ "main" ]
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy to'
+        required: true
+        default: 'dev'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+      cluster_name:
+        description: 'Short name of the cluster (will auto-append .k8s.local)'
+        required: true
+        type: string
+        default: 'dev-cluster'
+      master_nodes:
+        description: 'Number of master nodes'
+        required: true
+        default: '1'
+        type: choice
+        options:
+          - '1'
+          - '2'
+      master_size:
+        description: 'Size of master nodes'
+        required: true
+        default: 't2.medium'
+        type: choice
+        options:
+          - 't2.small'
+          - 't2.medium'
+          - 't2.large'
+      worker_nodes:
+        description: 'Number of worker nodes'
+        required: true
+        default: '2'
+        type: choice
+        options:
+          - '2'
+          - '3'
+      worker_size:
+        description: 'Size of worker nodes'
+        required: true
+        default: 't2.small'
+        type: choice
+        options:
+          - 't2.micro'
+          - 't2.small'
+          - 't2.medium'
+
+jobs:
+  setup:
+    name: Environment Setup
+    uses: ./.github/workflows/setup-environment.yml
+    with:
+      cluster_name: ${{ github.event.inputs.cluster_name || 'dev-cluster' }}
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+    secrets: inherit
+
+  deploy:
+    name: Deploy Cluster
+    needs: setup
+    uses: ./.github/workflows/deploy-cluster.yml
+    with:
+      cluster_name: ${{ needs.setup.outputs.validated_cluster_name }}
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+      available_zones: ${{ needs.setup.outputs.available_zones }}
+      worker_nodes: ${{ github.event.inputs.worker_nodes || '2' }}
+      worker_size: ${{ github.event.inputs.worker_size || 't2.small' }}
+      master_size: ${{ github.event.inputs.master_size || 't2.medium' }}
+      master_nodes: ${{ github.event.inputs.master_nodes || '1' }}
+      event_name: ${{ github.event_name }}
+    secrets: inherit
+
+  cleanup:
+    name: Cleanup Test Cluster
+    needs: [setup, deploy]
+    if: ${{ github.event_name != 'workflow_dispatch' && needs.deploy.result == 'success' }}
+    uses: ./.github/workflows/cluster-destroy-steps.yml
+    with:
+      cluster_name: ${{ needs.setup.outputs.validated_cluster_name }}
+      environment: ${{ github.event.inputs.environment || 'dev' }}
+    secrets: inherit
