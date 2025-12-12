@@ -52,11 +52,40 @@ jobs:
           echo "KOPS_STATE_STORE=$KOPS_STATE_STORE" >> $GITHUB_ENV
           echo "🧹 Cleaning up test cluster: $CLUSTER_NAME"
 
+      - name: Generate Terraform Files
+        if: github.event_name == 'workflow_dispatch'
+        continue-on-error: false
+        run: |
+          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
+            echo "📝 Generating Terraform files from kOps cluster..."
+            kops update cluster \
+              --name=$CLUSTER_NAME \
+              --state=$KOPS_STATE_STORE \
+              --yes \
+              --admin \
+              --out ./kops-infra \
+              --target terraform
+            echo "✅ Terraform files generated"
+          else
+            echo "ℹ️  Cluster $CLUSTER_NAME not found, skipping Terraform generation"
+          fi
+
       - name: Wait Before Cleanup
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: |
           echo "⏳ Waiting 2 minutes before cleanup to allow testing..."
           sleep 120
+
+      - name: kOps Cluster Destroy
+        continue-on-error: true
+        run: |
+          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
+            echo "🗑️  Deleting cluster $CLUSTER_NAME..."
+            kops delete cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE --yes
+            echo "✅ Cluster deleted"
+          else
+            echo "ℹ️  Cluster $CLUSTER_NAME not found, already cleaned up"
+          fi
 
       - name: Terraform Destroy
         continue-on-error: true
@@ -79,18 +108,6 @@ jobs:
           else
             echo "⚠️  Terraform state not found, proceeding with kOps cleanup"
           fi
-
-      - name: kOps Cluster Destroy
-        continue-on-error: true
-        run: |
-          if kops get cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE >/dev/null 2>&1; then
-            echo "🗑️  Deleting cluster $CLUSTER_NAME..."
-            kops delete cluster --name=$CLUSTER_NAME --state=$KOPS_STATE_STORE --yes
-            echo "✅ Cluster deleted"
-          else
-            echo "ℹ️  Cluster $CLUSTER_NAME not found, already cleaned up"
-          fi
-
       - name: Cleanup S3 Artifacts
         continue-on-error: true
         run: |
