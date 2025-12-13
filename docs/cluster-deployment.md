@@ -1,4 +1,4 @@
-# kOps Cluster Deployment – GitHub Actions Guide
+# KOPD Cluster Deployment – GitHub Actions Guide
 
 This repository provides a GitHub Actions–based workflow to deploy and manage a Kubernetes cluster using kOps on AWS.
 
@@ -146,43 +146,46 @@ kubectl get nodes
 ## Step 3: Download SSH Key from S3
 
 - Create the SSH directory if it does not exist:
-
+```bash
 mkdir -p ~/.ssh
-
+```
 
 ## Download the SSH private key from S3:
-
-- aws s3 cp s3://kops/dev/[clusterName].local/ssh-key ~/.ssh/[clusterName].k8s.local-key
-
+```bash
+aws s3 cp s3://kops/dev/[clusterName].local/ssh-key ~/.ssh/[clusterName].k8s.local-key
+```
 
 ## Set secure permissions on the key:
-
-- chmod 600 ~/.ssh/[clusterName].k8s.local-key
-
+```bash
+chmod 600 ~/.ssh/[clusterName].k8s.local-key
+```
 ## Step 4: SSH into a Cluster Node
 
 - Get the node IP address:
-
-- kubectl get nodes -o wide
-
+```bash
+kubectl get nodes -o wide
+```
 
 ## Connect to the node using SSH:
+```bash
+ssh -i ~/.ssh/[clusterName].k8s.local-key ubuntu@<node-ip>
+```
 
-- ssh -i ~/.ssh/[].k8s.local-key ubuntu@<node-ip>
-
-
-- Replace <node-ip> with the external IP address of the node.
+-  Replace <node-ip> with the external IP address of the node.
 
 ## Step 5: Validate Cluster (Optional)
 
 - Run kOps cluster validation:
-
-- kops validate cluster --name dev-cluster.k8s.local
+```bash
+- kops validate cluster --name [clusterName].k8s.local
+```
 
 ## Expected Output
+
 - Your cluster [clusterName].k8s.local is ready
 
 ## Common Issues
+
 - kubectl Not Connecting
 
 ## Ensure kubeconfig exists at ~/.kube/config
